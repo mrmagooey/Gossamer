@@ -3,7 +3,7 @@ __author__ = 'peterdavis'
 import urllib2
 import os
 from lxml import etree
-from urlparse import urlparse
+from urlparse import urlparse, urlunparse
 
 current_dir = os.getcwd()
 
@@ -71,8 +71,7 @@ class Silk():
         self.xpaths = xpath_dict
         if 'url' in kwargs:
             self.url = url
-            for address in kwargs['url']:
-                self.html_element_data.append(self._get_html_(address))
+            self.html_element_data.append(self._get_html_(self.url))
         elif 'data' in kwargs:
             self.parent_silk = kwargs['data']
             for output in kwargs['data']:
@@ -115,24 +114,32 @@ class Silk():
                     pass
                 if 'url' in requirements_tuple:
                     #run urlparse on parsed data, checking what data elements are present
-                    for data_element in parsed_data:
+                    for i,data_element in enumerate(parsed_data):
                         new_url = list()
                         url_components = urlparse(data_element)
                         # if scheme, netloc or path are missing get parent url and use that
                         parent_url_components = urlparse(self._get_url_())
                         if url_components.scheme == '':
                             new_url.append(parent_url_components.scheme)
+                        else:
+                            new_url.append(url_components.scheme)
                         if url_components.netloc == '':
                             new_url.append(parent_url_components.netloc)
+                        else:
+                            new_url.append(url_components.netloc)
                         if url_components.path == '':
                             new_url.append(parent_url_components.path)
+                        else:
+                            new_url.append(url_components.path)
 
-                        # Assume that if there are any queries or fragments
-                        # that the new url has them
+                        # Assume that if there are any params,queries or fragments
+                        # that the new url has them, if not probably not a url
 
                         new_url.append(url_components.params)
                         new_url.append(url_components.query)
                         new_url.append(url_components.fragment)
+                        print new_url
+                        parsed_data[i] = urlunparse(new_url)
 
                 parse_list.append(parsed_data)
 
@@ -157,17 +164,12 @@ class Silk():
 #instantiate silk
 query_dict = [('table rows','/html/body/div[3]/div[3]/div[4]/table/tr',('required'))]
 
-url=['http://en.wikipedia.org/wiki/Snes_games']
-a = Silk(query_dict, url=url)
-for xpath_item in a:
-    print xpath_item
-
+url='http://en.wikipedia.org/wiki/Snes_games'
+snes_table_rows_a_m = Silk(query_dict, url=url)
 query_dict = [
               ('game name','td[1]//text()',('required')),
               ('game release date','td[3]/a//text()',('required')),
               ('game url','td[1]//a/@href',('optional','url'))
 ]
+snes_games_a_m = Silk(query_dict,data=a)
 
-b = Silk(query_dict,data=a)
-for xpath_item in b:
-    print xpath_item
