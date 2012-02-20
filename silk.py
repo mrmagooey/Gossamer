@@ -1,8 +1,11 @@
 __author__ = 'peterdavis'
 
 import urllib2
-import lxml
+import os
 from lxml import etree
+from urlparse import urlparse
+
+current_dir = os.getcwd()
 
 class Silk():
     opener =  urllib2.build_opener()
@@ -17,11 +20,12 @@ class Silk():
          If save is true, function will return an already saved version if it exists, or
          it saves the retrieved html to a directory above this file named 'save_directory'."""
         file_name= url.replace('/','_')+ '.html'
-        file_path = os.path.join(current_dir,save_directory, file_name)
+        file_path = os.path.join(current_dir,save_directory)
+        file_path_name = os.path.join(current_dir,save_directory, file_name)
         if save:
-            if os.path.exists(file_path):
+            if os.path.exists(file_path_name):
                 print 'file found: ', file_name
-                return etree.HTML(open(file_name,'rb').read())
+                return etree.HTML(open(file_path_name,'rb').read())
 
         #This will raise urllib2.HTTPError exception if it fails
         response = self.opener.open(url)
@@ -34,7 +38,11 @@ class Silk():
         else:
             data = response.read()
         if save:
-            open(file_path,'wb').write(data)
+            if os.path.exists(file_path):
+                open(file_path_name,'wb').write(data)
+            else:
+                os.mkdir(file_path)
+                open(file_path_name,'wb').write(data)
         return etree.HTML(data)
 
     def _get_resource_(self,url):
@@ -68,14 +76,24 @@ class Silk():
         elif 'data' in kwargs:
             self.parent_silk = kwargs['data']
             for output in kwargs['data']:
-                for element in output[1]:
-                    self.html_element_data.append(element)
+                for element in output:
+                    print element
+                    self.html_element_data.extend(element)
         else:
             raise Exception('no data or url')
         self._run_()
 
     def _check_regex_(self,regex_string, data):
         return True
+
+    def _get_url_(self):
+        try:
+            return self.url
+        except AttributeError:
+            try:
+                return self.parent_silk._get_url_()
+            except AttributeError:
+                raise Exception("No valid parent url found")
 
     def _run_(self):
         for data in self.html_element_data:
@@ -87,27 +105,43 @@ class Silk():
                 requirements_tuple = xpath_tuple[2]
                 parsed_data = data.xpath(xpath_string)
 
-                if requirements_tuple[0] == 'required':
+                if 'required' in requirements_tuple:
                     # Parsed_data must not be an empty list
                     if not parsed_data:
                         invalid_data = True
                         continue
-                    # Check if regex supplied
-                    if len(requirements_tuple) == 2:
-                        invalid_data = not self._check_regex_(requirements_tuple[1],parsed_data)
 
                 if requirements_tuple[0] == 'optional':
                     pass
+                if 'url' in requirements_tuple:
+                    #run urlparse on parsed data, checking what data elements are present
+                    for data_element in parsed_data:
+                        new_url = list()
+                        url_components = urlparse(data_element)
+                        # if scheme, netloc or path are missing get parent url and use that
+                        parent_url_components = urlparse(self._get_url_())
+                        if url_components.scheme == '':
+                            new_url.append(parent_url_components.scheme)
+                        if url_components.netloc == '':
+                            new_url.append(parent_url_components.netloc)
+                        if url_components.path == '':
+                            new_url.append(parent_url_components.path)
 
-                parse_list.append((xpath_name,parsed_data))
+                        # Assume that if there are any queries or fragments
+                        # that the new url has them
+
+                        new_url.append(url_components.params)
+                        new_url.append(url_components.query)
+                        new_url.append(url_components.fragment)
+
+                parse_list.append(parsed_data)
 
             # If the xpath set isn't found to validate against the data, don't save
             if invalid_data:
                 continue
             else:
-                for item in parse_list:
-                    self.output.append(item)
-
+                parse_tuple = tuple(parse_list)
+                self.output.append(parse_tuple)
 
     def __repr__(self):
         print self.output
@@ -131,7 +165,7 @@ for xpath_item in a:
 query_dict = [
               ('game name','td[1]//text()',('required')),
               ('game release date','td[3]/a//text()',('required')),
-              ('game url','td[1]//a/@href',('optional'))
+              ('game url','td[1]//a/@href',('optional','url'))
 ]
 
 b = Silk(query_dict,data=a)
