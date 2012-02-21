@@ -7,7 +7,6 @@ setup(
     url="https://github.com/mrmagooey/Gossamer",
     author="Peter Davis",
     description="Simple Python Scraper",
-    package_dir= {'gossamer':'src'},
     packages=['gossamer'],
-    
+    install_requires = requires,
 )
