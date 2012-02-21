@@ -76,7 +76,6 @@ class Silk():
             self.parent_silk = kwargs['data']
             for output in kwargs['data']:
                 for element in output:
-                    print element
                     self.html_element_data.extend(element)
         else:
             raise Exception('no data or url')
@@ -138,7 +137,6 @@ class Silk():
                         new_url.append(url_components.params)
                         new_url.append(url_components.query)
                         new_url.append(url_components.fragment)
-                        print new_url
                         parsed_data[i] = urlunparse(new_url)
 
                 parse_list.append(parsed_data)
@@ -161,15 +159,18 @@ class Silk():
         for item in self.output:
             yield item
 
-#instantiate silk
-query_dict = [('table rows','/html/body/div[3]/div[3]/div[4]/table/tr',('required'))]
 
-url='http://en.wikipedia.org/wiki/Snes_games'
-snes_table_rows_a_m = Silk(query_dict, url=url)
-query_dict = [
-              ('game name','td[1]//text()',('required')),
-              ('game release date','td[3]/a//text()',('required')),
-              ('game url','td[1]//a/@href',('optional','url'))
-]
-snes_games_a_m = Silk(query_dict,data=a)
+###Example Usage###
+#query_dict = [('table rows','/html/body/div[3]/div[3]/div[4]/table/tr',('required'))]
+#url='http://en.wikipedia.org/wiki/Snes_games'
+#snes_table_rows_a_m = Silk(query_dict, url=url)
+#query_dict = [
+#              ('game name','td[1]//text()',('required')),
+#              ('game release date','td[3]/a//text()',('required')),
+#              ('game url','td[1]//a/@href',('optional','url'))
+#]
+#snes_games_a_m = Silk(query_dict,data=snes_table_rows_a_m)
+#
+#for item in snes_games_a_m:
+#    print item
 
