@@ -66,9 +66,9 @@ class Silk():
 
     def _get_tempfile_resource_(self,url):
         """ Retrieves resource at url, saves to a temporary file, returns file-like object"""
-        url = self._validate_url_(url)
+        resource_url = self._validate_url_(url)
         temp_file = NamedTemporaryFile()
-        temp_file.write(self._get_resource_(url))
+        temp_file.write(self._get_resource_(resource_url))
         return temp_file
 
     def save_image_to_django_model(self, image_url, model, image_field):
