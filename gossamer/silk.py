@@ -1,4 +1,4 @@
-__author__ = 'peterdavis'
+
 
 import urllib2
 import os
