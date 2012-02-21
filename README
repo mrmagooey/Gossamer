@@ -1,0 +1,6 @@
+
+Gossamer: Simple Python Scraper
+###############################
+
+In reality little more than a wrapper around urllib2 and lxml.
+
