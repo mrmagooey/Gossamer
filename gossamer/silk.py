@@ -174,35 +174,35 @@ class Silk():
 
 
 ###Example Usage###
-
-query_dict = [('table rows','/html/body/div[3]/div[3]/div[4]/table/tr',('required'))]
-url='http://en.wikipedia.org/wiki/Snes_games'
-snes_table_rows_a_m = Silk(query_dict, url=url)
-
-query_dict = [
-              ('game name','td[1]//text()',('required')),
-              ('game release date','td[3]/a//text()',('required')),
-              ('game url','td[1]//a/@href',('optional','url'))
-]
-snes_games_a_m = Silk(query_dict,data=snes_table_rows_a_m)
-
-
-game_scrape_params = [
-    ('image url','/html/body/div[3]/div[3]/div[4]/table/tr[2]/td/a/img/@src', ('required','get_resource'))
-]
-print 'for loop'
-for item in snes_games_a_m:
-    try:
-        game_name = item[0][0]
-        game_release_year = item[1]
-        game_url = item[2][0]
-        print 'game url: ',game_url
-        game_scrape = Silk(game_scrape_params, url=game_url)
-        print 'game scrape',game_scrape
-
-        assert False
-    except IndexError:
-        pass
-
-
+#
+#query_dict = [('table rows','/html/body/div[3]/div[3]/div[4]/table/tr',('required'))]
+#url='http://en.wikipedia.org/wiki/Snes_games'
+#snes_table_rows_a_m = Silk(query_dict, url=url)
+#
+#query_dict = [
+#              ('game name','td[1]//text()',('required')),
+#              ('game release date','td[3]/a//text()',('required')),
+#              ('game url','td[1]//a/@href',('optional','url'))
+#]
+#snes_games_a_m = Silk(query_dict,data=snes_table_rows_a_m)
+#
+#
+#game_scrape_params = [
+#    ('image url','/html/body/div[3]/div[3]/div[4]/table/tr[2]/td/a/img/@src', ('required','get_resource'))
+#]
+#print 'for loop'
+#for item in snes_games_a_m:
+#    try:
+#        game_name = item[0][0]
+#        game_release_year = item[1]
+#        game_url = item[2][0]
+#        print 'game url: ',game_url
+#        game_scrape = Silk(game_scrape_params, url=game_url)
+#        print 'game scrape',game_scrape
+#
+#        assert False
+#    except IndexError:
+#        pass
+#
+#
 
