@@ -4,6 +4,7 @@ import urllib2
 import os
 from lxml import etree
 from urlparse import urlparse, urlunparse
+from tempfile import NamedTemporaryFile
 
 current_dir = os.getcwd()
 
@@ -11,9 +12,23 @@ class Silk():
     opener =  urllib2.build_opener()
     opener.addheaders = [('User-agent', 'Mozilla/5.0')]
 
-    xpaths = dict()
-    html_element_data = list()
-    output = list()
+    def __init__(self,xpath_dict,**kwargs):
+        self.xpaths = dict()
+        self.html_element_data = list()
+        self.output = list()
+        self.xpaths = xpath_dict
+        if 'url' in kwargs:
+            self.url = kwargs['url']
+            self.html_element_data.append(self._get_html_(self.url))
+        elif 'data' in kwargs:
+            self.parent_silk = kwargs['data']
+            for output in kwargs['data']:
+                for element in output:
+                    self.html_element_data.extend(element)
+        else:
+            raise Exception('no data or url')
+        self._run_()
+
     def _get_html_(self,url,save=True,save_directory="scraped_html"):
         """Using url, gets html and returns etree HTML object.
          If the url returns 404, function returns urllib.HTTP404 exception.
@@ -49,9 +64,10 @@ class Silk():
         """ Uses class urllib2.opener to return contents of url"""
         return self.opener.open(url).read()
 
-    def _get_temp_resource_(self,url):
+    def _get_tempfile_resource_(self,url):
         """ Retrieves resource at url, saves to a temporary file, returns file-like object"""
-        temp_file = NamedTemporaryFile(delete=True)
+        url = self._validate_url_(url)
+        temp_file = NamedTemporaryFile()
         temp_file.write(self._get_resource_(url))
         return temp_file
 
@@ -60,26 +76,13 @@ class Silk():
         Gets an image from 'image_url' and saves to the django 'models' 'image_field'.
         """
         try:
-            image = self._get_temp_resource_(image_url)
+            image = self._get_tempfile_resource_(image_url)
         except urllib2.HTTPError:
             return False
         image_name = image_url.split('/')[-1]
         getattr(model,image_field).save(image_name, image)
         return True
 
-    def __init__(self,xpath_dict,**kwargs):
-        self.xpaths = xpath_dict
-        if 'url' in kwargs:
-            self.url = url
-            self.html_element_data.append(self._get_html_(self.url))
-        elif 'data' in kwargs:
-            self.parent_silk = kwargs['data']
-            for output in kwargs['data']:
-                for element in output:
-                    self.html_element_data.extend(element)
-        else:
-            raise Exception('no data or url')
-        self._run_()
 
     def _check_regex_(self,regex_string, data):
         return True
@@ -92,6 +95,32 @@ class Silk():
                 return self.parent_silk._get_url_()
             except AttributeError:
                 raise Exception("No valid parent url found")
+
+    def _validate_url_(self,url):
+        new_url = list()
+        url_components = urlparse(url)
+        # if scheme, netloc or path are missing get parent url and use that
+        parent_url_components = urlparse(self._get_url_())
+        if url_components.scheme == '':
+            new_url.append(parent_url_components.scheme)
+        else:
+            new_url.append(url_components.scheme)
+        if url_components.netloc == '':
+            new_url.append(parent_url_components.netloc)
+        else:
+            new_url.append(url_components.netloc)
+        if url_components.path == '':
+            new_url.append(parent_url_components.path)
+        else:
+            new_url.append(url_components.path)
+
+        # Assume that if there are any params,queries or fragments
+        # that the new url has them, if not probably not a url
+
+        new_url.append(url_components.params)
+        new_url.append(url_components.query)
+        new_url.append(url_components.fragment)
+        return urlunparse(new_url)
 
     def _run_(self):
         for data in self.html_element_data:
@@ -111,34 +140,17 @@ class Silk():
 
                 if requirements_tuple[0] == 'optional':
                     pass
+
+                if 'get_resource' in requirements_tuple:
+                    for i,data_element in enumerate(parsed_data):
+                        parsed_data[i] = self._get_tempfile_resource_(data_element)
+
                 if 'url' in requirements_tuple:
                     #run urlparse on parsed data, checking what data elements are present
                     for i,data_element in enumerate(parsed_data):
-                        new_url = list()
-                        url_components = urlparse(data_element)
-                        # if scheme, netloc or path are missing get parent url and use that
-                        parent_url_components = urlparse(self._get_url_())
-                        if url_components.scheme == '':
-                            new_url.append(parent_url_components.scheme)
-                        else:
-                            new_url.append(url_components.scheme)
-                        if url_components.netloc == '':
-                            new_url.append(parent_url_components.netloc)
-                        else:
-                            new_url.append(url_components.netloc)
-                        if url_components.path == '':
-                            new_url.append(parent_url_components.path)
-                        else:
-                            new_url.append(url_components.path)
-
-                        # Assume that if there are any params,queries or fragments
-                        # that the new url has them, if not probably not a url
-
-                        new_url.append(url_components.params)
-                        new_url.append(url_components.query)
-                        new_url.append(url_components.fragment)
-                        parsed_data[i] = urlunparse(new_url)
-
+                        parsed_data[i] = self._validate_url_(data_element)
+                        #todo work out what do if url fails
+                print 'parsed_data ', parsed_data
                 parse_list.append(parsed_data)
 
             # If the xpath set isn't found to validate against the data, don't save
@@ -147,6 +159,7 @@ class Silk():
             else:
                 parse_tuple = tuple(parse_list)
                 self.output.append(parse_tuple)
+
 
     def __repr__(self):
         print self.output
@@ -161,16 +174,35 @@ class Silk():
 
 
 ###Example Usage###
-#query_dict = [('table rows','/html/body/div[3]/div[3]/div[4]/table/tr',('required'))]
-#url='http://en.wikipedia.org/wiki/Snes_games'
-#snes_table_rows_a_m = Silk(query_dict, url=url)
-#query_dict = [
-#              ('game name','td[1]//text()',('required')),
-#              ('game release date','td[3]/a//text()',('required')),
-#              ('game url','td[1]//a/@href',('optional','url'))
-#]
-#snes_games_a_m = Silk(query_dict,data=snes_table_rows_a_m)
-#
-#for item in snes_games_a_m:
-#    print item
+
+query_dict = [('table rows','/html/body/div[3]/div[3]/div[4]/table/tr',('required'))]
+url='http://en.wikipedia.org/wiki/Snes_games'
+snes_table_rows_a_m = Silk(query_dict, url=url)
+
+query_dict = [
+              ('game name','td[1]//text()',('required')),
+              ('game release date','td[3]/a//text()',('required')),
+              ('game url','td[1]//a/@href',('optional','url'))
+]
+snes_games_a_m = Silk(query_dict,data=snes_table_rows_a_m)
+
+
+game_scrape_params = [
+    ('image url','/html/body/div[3]/div[3]/div[4]/table/tr[2]/td/a/img/@src', ('required','get_resource'))
+]
+print 'for loop'
+for item in snes_games_a_m:
+    try:
+        game_name = item[0][0]
+        game_release_year = item[1]
+        game_url = item[2][0]
+        print 'game url: ',game_url
+        game_scrape = Silk(game_scrape_params, url=game_url)
+        print 'game scrape',game_scrape
+
+        assert False
+    except IndexError:
+        pass
+
+
 
