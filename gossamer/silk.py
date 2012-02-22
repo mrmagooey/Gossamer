@@ -1,10 +1,10 @@
-
-
 import urllib2
 import os
+import gzip
 from lxml import etree
 from urlparse import urlparse, urlunparse
 from tempfile import NamedTemporaryFile
+from StringIO import StringIO
 
 current_dir = os.getcwd()
 
@@ -149,8 +149,7 @@ class Silk():
                     #run urlparse on parsed data, checking what data elements are present
                     for i,data_element in enumerate(parsed_data):
                         parsed_data[i] = self._validate_url_(data_element)
-                        #todo work out what do if url fails
-                print 'parsed_data ', parsed_data
+
                 parse_list.append(parsed_data)
 
             # If the xpath set isn't found to validate against the data, don't save
@@ -160,13 +159,15 @@ class Silk():
                 parse_tuple = tuple(parse_list)
                 self.output.append(parse_tuple)
 
+    def __getitem__(self, item):
+        return self.output[item]
 
     def __repr__(self):
-        print self.output
+#        print self.output
         try:
-            return "<Silk Instance>, URL/s:"+str(self.url)+", xpath:elements" + str(len(self.output))
+            return "<Silk Instance>"+" Output:"+ str(self.output)
         except AttributeError:
-            return "<Silk Instance>, Parent:" + self.parent_silk.__repr__()
+            return "<Silk Instance>", str(self.output)
 
     def __iter__(self):
         for item in self.output:
