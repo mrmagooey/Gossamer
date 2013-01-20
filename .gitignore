@@ -3,3 +3,5 @@
 dist/
 \#*\#
 .\#*
+*.pyc
+gossamer/debug_html_files/
