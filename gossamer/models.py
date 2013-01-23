@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
 from tornado.httpclient import AsyncHTTPClient, HTTPResponse, HTTPRequest
 #from tornado.ioloop import IOLoop
-from tornado import gen
+from tornado import gen, ioloop
+
 from lxml import html
 import functools
 import os
 import re
 from cStringIO import StringIO
+import datetime
+import Queue
 
 class Silk(object):
     """
@@ -28,7 +31,7 @@ class Silk(object):
 
 
     def __init__(self, loop, debug=False, save_directory='debug_html_files',
-                 start_urls=[], allowed_domains=None, fail_silent=True):
+                 start_urls=[], allowed_domains=None, fail_silent=True, max_requests=10):
         self.fail_silent = fail_silent
 
         if allowed_domains:
@@ -45,6 +48,13 @@ class Silk(object):
         else:
             self.save_directory = os.path.join(self.current_dir, save_directory)
 
+        self.max_requests = max_requests
+
+        self._request_queue = Queue.Queue()
+        fetch_task = ioloop.PeriodicCallback(self._fetch,
+                                      1.0/self.max_requests*1000,
+                                      self.loop)
+        fetch_task.start()
 
     def stop(self):
         """
@@ -58,6 +68,22 @@ class Silk(object):
         """
         self.loop.stop()
         return True
+
+    def _fetch(self):
+        try:
+            request_tuple = self._request_queue.get(block=False)
+            url = request_tuple[0]
+            callback = request_tuple[1]
+        except Queue.Empty:
+            return None
+        except IndexError:
+            raise Exception("Incorrect request tuple passed to add_requests(), correct form is \
+                            (url, callback)")
+        self.client.fetch(url, callback)
+
+
+    def add_request(self, url, callback):
+        self._request_queue.put((url,callback))
 
 
     @gen.engine
@@ -90,7 +116,7 @@ class Silk(object):
                 else:
                     self.fetch_and_save(url, callback)
             else:
-                self.client.fetch(url, callback)
+                self.add_request(url, callback)
         elif not self.fail_silent:
             raise ExternalDomainError(url)
         else:
@@ -117,6 +143,9 @@ class Silk(object):
         Pass it to the registered children strands
         """
         response = yield gen.Task(self.get, url)
+        if self.spiders:
+            for spider in self.spiders:
+                spider._crawl(response)
 
 
     def _local_file_name(self, url):
@@ -150,15 +179,16 @@ class Silk(object):
 
     @gen.engine
     def fetch_and_save(self, url, callback):
-        file_path = self._local_file_name(url)
-        data = yield gen.Task(self.client.fetch, url)
-        if not os.path.exists(self.save_directory):
-            os.mkdir(self.save_directory)
-
-        with open(file_path,'w') as html_file:
-            html_file.write(data.body)
-            html_file.close()
-        callback(data)
+        def _save(data, callback):
+            file_path = self._local_file_name(url)
+            if not os.path.exists(self.save_directory):
+                os.mkdir(self.save_directory)
+            with open(file_path,'w') as html_file: # blocking
+                html_file.write(data.body)
+                html_file.close()
+            callback(data)
+        callback_partial = functools.partial(_save, callback=callback)
+        self.add_request(url, callback_partial)
 
 
     def parse(self, xpath=None, httpresponse=None, callback=None):
@@ -181,42 +211,36 @@ class Silk(object):
         self.get(url, parse_partial)
 
 
-    def register(self, spiders):
+    def register(self, spider):
         """
         Takes either a single spider object, or an iterable of spider objects
-        
+
           "Each of those things are just a small part of it."
             - Major Motoko Kusanagi
         """
-        try: # Iterable of spiders
-            for spider in spiders:
-                try:
-                    self.spiders.append(spider)
-                except (UnboundLocalError, AttributeError):
-                    self.spiders = [spider]
-        except TypeError: # Single spider
-            try:
-                self.spiders.append(spiders)
-            except (UnboundLocalError, AttributeError):
-                self.spiders = [spiders]
+        spider.silk = self
+        try:
+            self.spiders.append(spider)
+        except AttributeError:
+            self.spiders = [spider]
+
+
 
 
 class Spider(object):
     """
-    Spider(allow, deny, depth, callback)
-    
     An instance of Silk() can have multiple Spiders(), each Spider() may, in turn, have
     multiple Spiders(). A Spider has a single regular expression that it attempts to match
     to the html that
-    
+
     For each spider to be used, it must know:
        a) who its parent object is (whether Silk() or Spider())
        b) what regular expressions it should be detecting within a html document
        c) what the html document is that it should be parsing
-    
+
     Each Spider is expecting to be passed some well formatted html from its parent Spider
     or Silk instance.
-    
+
     """
 
     IGNORED_EXTENSIONS = [
@@ -238,29 +262,55 @@ class Spider(object):
         'css', 'pdf', 'doc', 'exe', 'bin', 'rss', 'zip', 'rar',
     ]
 
-    
-    def __init__(self, allow_regex=[], deny_regex=[], depth=None, callback=None):
+    def __init__(self, allow_regex=[], deny_regex=[], html_only=True,
+                 follow=False, callback=None):
         """
-        "And where does the newborn go from here? The net is vast and infinite. "
+
+        "And where does the newborn go from here? The net is vast and infinite."
             - Major Motoko Kusanagi, Puppet Master
         """
-        self.allow_regex = allow_regex
-        self.deny_regex = deny_regex
-        self.depth = depth
+        if len(allow_regex) == 0:
+            allow_regex = [''] # match everything
+        if len(deny_regex) == 0:
+            deny_regex = ['%%'] # match nothing (%% is url unsafe and shouldn't be found)
+        self.allow_regex = [re.compile(regex) for regex in allow_regex]
+        self.deny_regex = [re.compile(regex) for regex in deny_regex]
+        self.html_only = html_only
+        self.follow = follow
         self.callback = callback
-        
-        
-    def find_urls(self, httpresponse, callback):
+
+        self.silk = None # set by Silk instance when register() called
+
+
+    def _find_urls(self, httpresponse, callback):
         """
-        Identifies urls in `httpresponse` and provides links that satisfy `allow_regex`,
-        `deny_regex` and `depth` and returns them as a list to the `callback`.
-        
+        Identifies urls in `httpresponse` and provides links that satisfy `allow_regex` and
+        `deny_regex` and returns them as a list to the `callback`.
+
         """
         links=[]
-        for item in html.iterlinks(httpresponse.body):
-            links.append(item)
+        for link_tuple in html.iterlinks(httpresponse.body):
+            link = link_tuple[2]
+            if self.html_only:
+                try:
+                    link_extension = link.split('.')[-1]
+                    if link_extension in self.IGNORED_EXTENSIONS:
+                        continue
+                except IndexError:
+                    pass
+            if all([re_allow.search(link) for re_allow in self.allow_regex]) and not\
+               all([re_deny.search(link) for re_deny in self.deny_regex]):
+                links.append(link)
         callback(links)
-        
+
+    @gen.engine
+    def _crawl(self, httpresponse, callback):
+        links = yield gen.Task(self._find_urls, httpresponse)
+        if self.follow == True:
+            self.silk.add_request(links)
+        callback(links)
+
+
 
 class ExternalDomainError(Exception):
     def __init__(self, url):

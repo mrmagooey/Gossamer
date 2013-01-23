@@ -121,47 +121,72 @@ class TestSilk(AsyncTestCase):
 
         try:
             s.get('http://google.com', self.stop)
+            self.wait()
         except ExternalDomainError as ex:
             self.assertEquals(type(ExternalDomainError('')), type(ex))
 
+    def test_add_requests(self):
+        domains = [
+            'www.dmoz.org',
+        ]
+        
+        s = Silk(self.io_loop, allowed_domains=domains, fail_silent=False)
+        
+
+            
+
+        
+        s.add_request('http://www.dmoz.org/Computers/Programming/Languages/Python/Books/',
+                       self.stop)
+        
             
 
 class TestSpider(AsyncTestCase):
 
     def test_can_create_spider_instance(self):
         Spider()
-        
         allow_regex = [r'Python',r'Ruby']
         deny_regex = [r'Deutsch']
-        depth = 1
-        Spider(allow_regex, deny_regex, depth=depth, callback=None)
+        Spider(allow_regex, deny_regex, callback=None)
         
 
     def test_can_register_spiders(self):
         spider1 = Spider()
         spider2 = Spider()
-        spider3 = Spider()
-        
         s = Silk(self.io_loop)
         s.register(spider1)
-        s.register([spider2,spider3])
-
+        s.register(spider2)
         self.assertIn(spider1, s.spiders)
         self.assertIn(spider2, s.spiders)
-        self.assertIn(spider3, s.spiders)
+
+        
+    def test_find_urls(self):
+        s = Silk(self.io_loop, allowed_domains=['www.dmoz.org'], fail_silent=False)
+        s.get('http://www.dmoz.org/Computers/Programming/Languages/Python/Books/', self.stop)
+        response = self.wait()
+        spider = Spider()
+        spider._find_urls(response, self.stop)
+        links = self.wait()
+        self.assertTrue(len(links) > 0)
+        
+    def test_crawl(self):
+        spider = Spider()
+        s = Silk(self.io_loop, allowed_domains=['www.dmoz.org'])
+        s.register(spider)
+        s.crawl('http://www.dmoz.org/Computers/Programming/Languages/Python/Books/',
+                self.stop)
+        
         
     def test_spider_prints_urls_without_callback(self):
         allow_regex = ['Python','Ruby']
         deny_regex = ['Deutsch']
         
-        spider1 = Spider(allow_regex, deny_regex, depth=None, callback=None)
+        spider1 = Spider(allow_regex, deny_regex, callback=None)
         s = Silk(self.io_loop, allowed_domains=['www.dmoz.org'], fail_silent=False)
         s.register(spider1)
         s.crawl('http://www.dmoz.org/Computers/Programming/Languages/Python/Books/',
                 self.stop)
-        
-        
-        
+
         
         
         
