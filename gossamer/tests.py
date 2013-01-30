@@ -1,53 +1,92 @@
 from models import Silk, Spider, ExternalDomainError
 import re
+import tornado.web
 from tornado.testing import AsyncTestCase
 from tornado.httpclient import HTTPResponse
+from tornado.httpserver import HTTPServer
 from lxml.etree import XPathEvalError
+import multiprocessing
+import SimpleHTTPServer
+import SocketServer
+import os
+
 
 class TestSilk(AsyncTestCase):
+    LOCAL_PORT = 8888
+    LOCAL_URL = 'http://127.0.0.1:%s/%s'
+    
+    @classmethod
+    def setUpClass(cls):
+        Handler = SimpleHTTPServer.SimpleHTTPRequestHandler
+        def quiet_log(self, format, *args):
+            return
+        Handler.log_message = quiet_log
+        current_dir = os.getcwd()
+        os.chdir(os.path.join(current_dir, 'test_html'))
+        httpd = SocketServer.TCPServer(("", cls.LOCAL_PORT), Handler)
+        cls.p = multiprocessing.Process(target=httpd.serve_forever)
+        cls.p.start()
+        os.chdir(current_dir)
+    
+    
+    @classmethod
+    def tearDownClass(cls):
+        cls.p.terminate()
+
+        
     def test_can_create_silk_instance(self):
         s = Silk(self.io_loop)
         s.stop()
 
         
+    def test_simplehttpserver(self):
+        s = Silk(self.io_loop)
+        s.get(self.LOCAL_URL%(self.LOCAL_PORT,'/'), self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 200)
+        s.get(self.LOCAL_URL%(self.LOCAL_PORT,'thisdoesnotexist.html'),self.stop)
+        response = self.wait()
+        self.assertEqual(response.code, 404)
+        
+        
     def test_get(self):
         s = Silk(self.io_loop)
-        s.get('http://www.google.com', self.stop)
+        s.get(self.LOCAL_URL%(self.LOCAL_PORT,'index.html'),self.stop)
         response = self.wait()
-        self.assertIn("Google", response.body)
+        self.assertIn("Test paragraph", response.body)
 
         
     def test_local_file_storage(self):
         s = Silk(self.io_loop)
-        s.fetch_and_save('http://www.google.com', self.stop)
+        s.fetch_and_save(self.LOCAL_URL%(self.LOCAL_PORT,'index.html'), self.stop)
         response = self.wait()
-        s.get_local_file('http://www.google.com', self.stop)
+        s.get_local_file(self.LOCAL_URL%(self.LOCAL_PORT,'index.html'), self.stop)
         local_file = self.wait()
         self.assertEqual(response.body, local_file.body)
-        s.delete_local_file('http://www.google.com')
+        s.delete_local_file(self.LOCAL_URL%(self.LOCAL_PORT,'index.html'))
         
         
     def test_parse_url(self):
         s = Silk(self.io_loop)
-        s.parse_url('//text()','http://www.google.com', self.stop)
+        s.parse_url('//text()',self.LOCAL_URL%(self.LOCAL_PORT,'index.html'), self.stop)
         xpath_elements = self.wait()
         self.assertTrue(type(xpath_elements=='list'))
         
         
     def test_parse(self):
         s = Silk(self.io_loop)
-        s.get('http://www.google.com', self.stop)
+        s.get(self.LOCAL_URL%(self.LOCAL_PORT,'index.html'), self.stop)
         response = self.wait()
         s.parse('//text()', response, self.stop)
         xpath_elements = self.wait()
         self.assertTrue(type(xpath_elements=='list'))
         text_string = ''.join(xpath_elements)
-        self.assertIn('google',text_string)
+        self.assertIn('test',text_string)
 
         
     def test_incorrect_parse_xpath(self):
         s = Silk(self.io_loop)
-        s.parse_url('//count()','http://www.google.com', self.stop)
+        s.parse_url('//count()',self.LOCAL_URL%(self.LOCAL_PORT,'index.html'), self.stop)
         try:
             self.wait()
         except XPathEvalError:
@@ -59,57 +98,61 @@ class TestSilk(AsyncTestCase):
         Test that with debug=True that files are being saved to the local disk.
         """
         s = Silk(self.io_loop, debug=True)
-        s.get('http://www.google.com', self.stop)
+        s.get(self.LOCAL_URL%(self.LOCAL_PORT,'index.html'), self.stop)
         response = self.wait()
-        s.get_local_file('http://www.google.com', self.stop)
+        s.get_local_file(self.LOCAL_URL%(self.LOCAL_PORT,'index.html'), self.stop)
         cached_response = self.wait()
         self.assertEqual(response.body, cached_response.body)
-        s.delete_local_file('http://www.google.com')
+        s.delete_local_file(self.LOCAL_URL%(self.LOCAL_PORT,'index.html'))
 
 
-    def test_restrict_scraping_domains(self):
+    def test_domains_single_domain(self):
         domains = [
-            'www.dmoz.org',
+            '127.0.0.1:%s'%(self.LOCAL_PORT),
         ]
-
+        
         s = Silk(self.io_loop, allowed_domains=domains)
-        s.get('http://www.dmoz.org', self.stop)
+        s.get(self.LOCAL_URL%(self.LOCAL_PORT,'index.html'), self.stop)
         response = self.wait()
-        self.assertIn("dmoz", response.body)
-
+        self.assertIn("test paragraph", response.body)
+        
         s.get('http://google.com', self.stop)
         response = self.wait()
-        self.assertEqual(response.body, '')
+        self.assertEqual(response.body, '') # Silently fails and returns an empty body
 
-        domains2 = [
+        
+    def test_subdomain(self):
+        domains = [
             'www.google.com',
         ]
-
-        s2 = Silk(self.io_loop, allowed_domains=domains2)
-        s2.get('http://www.dmoz.org', self.stop)
+        
+        s = Silk(self.io_loop, allowed_domains=domains)
+        s.get('http://google.com', self.stop)
         response = self.wait()
         self.assertEqual(len(response.body), 0)
-
-        s2.get('http://google.com', self.stop)
+        
+        s = Silk(self.io_loop, allowed_domains=domains)
+        s.get('http://www.google.com', self.stop)
         response = self.wait()
-        self.assertEqual(len(response.body), 0)
+        self.assertIn('google', response.body)
 
-        domains3 = [
+        
+    def test_multiple_domains(self):
+        domains = [
             'www.dmoz.org',
             'www.google.com',
         ]
-
-        s3 = Silk(self.io_loop, allowed_domains=domains3)
+        
+        s3 = Silk(self.io_loop, allowed_domains=domains)
         s3.get('http://www.dmoz.org', self.stop)
         response = self.wait()
         self.assertIn("dmoz", response.body)
-
         s3.get('http://www.google.com', self.stop)
         response = self.wait()
         self.assertIn("Google", response.body)
 
 
-    def test_restrict_scraping_domains_fail_loudly(self):
+    def test_domains_fail_loudly(self):
         domains = [
             'www.dmoz.org',
         ]
@@ -118,31 +161,51 @@ class TestSilk(AsyncTestCase):
         s.get('http://www.dmoz.org', self.stop)
         response = self.wait()
         self.assertIn("dmoz", response.body)
-
         try:
             s.get('http://google.com', self.stop)
             self.wait()
         except ExternalDomainError as ex:
             self.assertEquals(type(ExternalDomainError('')), type(ex))
 
+            
     def test_add_requests(self):
         domains = [
             'www.dmoz.org',
         ]
-        
         s = Silk(self.io_loop, allowed_domains=domains, fail_silent=False)
-        
-
-            
-
-        
         s.add_request('http://www.dmoz.org/Computers/Programming/Languages/Python/Books/',
                        self.stop)
+        response = self.wait()
+        self.assertIn('dmoz', response.body)
+        s.add_request('http://www.dmoz.org/Computers/Programming/Languages/Python/Books/',
+                       self.stop)
+        response = self.wait()
+        self.assertIn('dmoz', response.body)
         
+    def test_change_request_rate(self):
+        raise Exception("no immediate idea how to test this")
             
 
 class TestSpider(AsyncTestCase):
-
+    @classmethod
+    def setUpClass(cls):
+        Handler = SimpleHTTPServer.SimpleHTTPRequestHandler
+        def quiet_log(self, format, *args):
+            return
+        Handler.log_message = quiet_log
+        current_dir = os.getcwd()
+        os.chdir(os.path.join(current_dir, 'test_html'))
+        httpd = SocketServer.TCPServer(("", cls.LOCAL_PORT), Handler)
+        cls.p = multiprocessing.Process(target=httpd.serve_forever)
+        cls.p.start()
+        os.chdir(current_dir)
+    
+    
+    @classmethod
+    def tearDownClass(cls):
+        cls.p.terminate()
+        
+        
     def test_can_create_spider_instance(self):
         Spider()
         allow_regex = [r'Python',r'Ruby']
@@ -186,6 +249,7 @@ class TestSpider(AsyncTestCase):
         s.register(spider1)
         s.crawl('http://www.dmoz.org/Computers/Programming/Languages/Python/Books/',
                 self.stop)
+        response = self.wait()
 
         
         

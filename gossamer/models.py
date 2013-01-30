@@ -8,16 +8,14 @@ import functools
 import os
 import re
 from cStringIO import StringIO
-import datetime
+#import datetime
 import Queue
 
 class Silk(object):
     """
     Core of the gossamer library. Is in charge of:
     - Parsing start pages (i.e. those given by the `start_urls` variable)
-    - Spawning spiders (based on `spiders` variable)
-    - Rate limiting all external fetch requests (based_on )
-    - Returning
+    - Rate limiting all external fetch requests (based_on `max_requests`)
 
     However, it is not in charge of starting the main event loop and is only passed the
     pre-made processes event loop singleton, which is .start()ed externally to the class.
@@ -29,7 +27,7 @@ class Silk(object):
     """
     current_dir = os.getcwd()
 
-
+    
     def __init__(self, loop, debug=False, save_directory='debug_html_files',
                  start_urls=[], allowed_domains=None, fail_silent=True, max_requests=10):
         self.fail_silent = fail_silent
