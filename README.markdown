@@ -1,11 +1,16 @@
 
-# Gossamer: Simple Python Scraper
+# Gossamer: Python Scraper
 
-In reality little more than a wrapper around urllib2 and lxml.
-
-Uses urllib2 to fetch network resources, and uses lxml (particularly its
-xpath capabilities) in order to parse and scrape the markup.
+(Tornado + lxml)**Internet = Gossamer
 
 ## Usage
+
+### Get a single web page
+
+### Get a buncha' web pages
+
+### Scrape specific parts of a webpage
+
+### 
 
 ## Installation

@@ -23,49 +23,62 @@ class Silk(object):
       "The advent of computers, and the subsequent accumulation of incalculable data
        has given rise to a new system of memory and thought parallel to your own. Humanity
        has underestimated the consequences of computerization."
-         - Puppet Master
+         - Puppet Master (Ghost in the Shell)
     """
     current_dir = os.getcwd()
-
+    TIMEOUT_PERIOD = 1000
     
-    def __init__(self, loop, debug=False, save_directory='debug_html_files',
-                 start_urls=[], allowed_domains=None, fail_silent=True, max_requests=10):
+    def __init__(self, loop=None, debug=False, save_directory='debug_html_files',
+                 start_urls=[], allowed_domains=None, fail_silent=True, max_requests=10,
+                 timeout=5000):
         self.fail_silent = fail_silent
-
         if allowed_domains:
             domains = [d.replace('.', r'\.') for d in allowed_domains]
             self.domain_regex = re.compile(r'(.*\.)?(%s)' % '|'.join(domains))
         else:
             self.domain_regex = re.compile(r'')
-
-        self.loop = loop
+        self.loop = loop or ioloop.IOLoop.instance()
         self.client = AsyncHTTPClient(self.loop)
         self.debug = debug
         if os.path.isabs(save_directory):
             self.save_directory = save_directory
         else:
             self.save_directory = os.path.join(self.current_dir, save_directory)
-
+        self.timeout = timeout            
         self.max_requests = max_requests
-
         self._request_queue = Queue.Queue()
         fetch_task = ioloop.PeriodicCallback(self._fetch,
                                       1.0/self.max_requests*1000,
                                       self.loop)
         fetch_task.start()
-
-    def stop(self):
+        self.active = True        
+        timeout_task = ioloop.PeriodicCallback(self._timeout,
+                                      self.TIMEOUT_PERIOD,
+                                      self.loop)
+        timeout_task.start()
+        
+        
+    def _timeout(self):
         """
-        Stops the event loop provided when the Silk() instance was created.
+        Called by ioloop.PeriodicCallback() in __init__.
+        Checks if requests haven't been routed through the silk instance in TIMEOUT_PERIOD,
+        kills event loop if this is the case.
+        """
+        if not self.active:
+            self.timeout += -self.TIMEOUT_PERIOD
+        if self.timeout <= 0:
+            self.loop.stop()
 
+        
+    def start(self):
+        """
         Returns True.
-
-          "Life perpetuates itself through diversity and this includes the ability to
-           sacrifice itself when necessary."
-             - Puppet Master
         """
-        self.loop.stop()
+        
+        self.loop.start()
+        
         return True
+
 
     def _fetch(self):
         try:
@@ -73,10 +86,12 @@ class Silk(object):
             url = request_tuple[0]
             callback = request_tuple[1]
         except Queue.Empty:
+            self.active = False
             return None
         except IndexError:
             raise Exception("Incorrect request tuple passed to add_requests(), correct form is \
                             (url, callback)")
+        self.active = True
         self.client.fetch(url, callback)
 
 
@@ -223,13 +238,10 @@ class Silk(object):
             self.spiders = [spider]
 
 
-
-
 class Spider(object):
     """
     An instance of Silk() can have multiple Spiders(), each Spider() may, in turn, have
-    multiple Spiders(). A Spider has a single regular expression that it attempts to match
-    to the html that
+    multiple Spiders(). A Spider has a single regular expression that it attempts to match.
 
     For each spider to be used, it must know:
        a) who its parent object is (whether Silk() or Spider())
@@ -238,6 +250,13 @@ class Spider(object):
 
     Each Spider is expecting to be passed some well formatted html from its parent Spider
     or Silk instance.
+
+    >>> 
+    >>> 
+    >>>     
+    >>> silk = Silk()
+    >>> spidey = Spider()
+    >>> 
 
     """
 
@@ -276,8 +295,7 @@ class Spider(object):
         self.html_only = html_only
         self.follow = follow
         self.callback = callback
-
-        self.silk = None # set by Silk instance when register() called
+        self.silk = None # set by Silk instance when Silk.register(spider) called
 
 
     def _find_urls(self, httpresponse, callback):
@@ -300,14 +318,15 @@ class Spider(object):
                all([re_deny.search(link) for re_deny in self.deny_regex]):
                 links.append(link)
         callback(links)
-
+        
+        
     @gen.engine
     def _crawl(self, httpresponse, callback):
         links = yield gen.Task(self._find_urls, httpresponse)
         if self.follow == True:
-            self.silk.add_request(links)
+            for link in links:
+                self.spider.get(link)
         callback(links)
-
 
 
 class ExternalDomainError(Exception):

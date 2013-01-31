@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 
-from distutils.core import setup
-package_requires = ['lxml']
+from setuptools import setup
+
+package_requires = ['lxml', 'tornado']
 
 setup(
     name = 'gossamer',

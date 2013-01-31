@@ -1,6 +1,7 @@
 from models import Silk, Spider, ExternalDomainError
 import re
 import tornado.web
+from tornado.ioloop import IOLoop
 from tornado.testing import AsyncTestCase
 from tornado.httpclient import HTTPResponse
 from tornado.httpserver import HTTPServer
@@ -10,10 +11,10 @@ import SimpleHTTPServer
 import SocketServer
 import os
 
+LOCAL_PORT = 8888
+LOCAL_URL = 'http://127.0.0.1:%s/%s'
 
 class TestSilk(AsyncTestCase):
-    LOCAL_PORT = 8888
-    LOCAL_URL = 'http://127.0.0.1:%s/%s'
     
     @classmethod
     def setUpClass(cls):
@@ -23,7 +24,7 @@ class TestSilk(AsyncTestCase):
         Handler.log_message = quiet_log
         current_dir = os.getcwd()
         os.chdir(os.path.join(current_dir, 'test_html'))
-        httpd = SocketServer.TCPServer(("", cls.LOCAL_PORT), Handler)
+        httpd = SocketServer.TCPServer(("", LOCAL_PORT), Handler)
         cls.p = multiprocessing.Process(target=httpd.serve_forever)
         cls.p.start()
         os.chdir(current_dir)
@@ -35,47 +36,52 @@ class TestSilk(AsyncTestCase):
 
         
     def test_can_create_silk_instance(self):
-        s = Silk(self.io_loop)
-        s.stop()
-
+        Silk(self.io_loop)
+        
         
     def test_simplehttpserver(self):
         s = Silk(self.io_loop)
-        s.get(self.LOCAL_URL%(self.LOCAL_PORT,'/'), self.stop)
+        s.get(LOCAL_URL%(LOCAL_PORT,'/'), self.stop)
         response = self.wait()
         self.assertEqual(response.code, 200)
-        s.get(self.LOCAL_URL%(self.LOCAL_PORT,'thisdoesnotexist.html'),self.stop)
+        s.get(LOCAL_URL%(LOCAL_PORT,'thisdoesnotexist.html'),self.stop)
         response = self.wait()
         self.assertEqual(response.code, 404)
+
         
+    def test_start(self):
+        s = Silk()
+        s.loop = IOLoop.instance()
+        s.start()
+
         
     def test_get(self):
         s = Silk(self.io_loop)
-        s.get(self.LOCAL_URL%(self.LOCAL_PORT,'index.html'),self.stop)
+        s.get(LOCAL_URL%(LOCAL_PORT,'index.html'),self.stop)
         response = self.wait()
         self.assertIn("Test paragraph", response.body)
 
         
     def test_local_file_storage(self):
         s = Silk(self.io_loop)
-        s.fetch_and_save(self.LOCAL_URL%(self.LOCAL_PORT,'index.html'), self.stop)
+        s.fetch_and_save(LOCAL_URL%(LOCAL_PORT,'index.html'), self.stop)
         response = self.wait()
-        s.get_local_file(self.LOCAL_URL%(self.LOCAL_PORT,'index.html'), self.stop)
+        s.get_local_file(LOCAL_URL%(LOCAL_PORT,'index.html'), self.stop)
         local_file = self.wait()
         self.assertEqual(response.body, local_file.body)
-        s.delete_local_file(self.LOCAL_URL%(self.LOCAL_PORT,'index.html'))
+        s.delete_local_file(LOCAL_URL%(LOCAL_PORT,'index.html'))
         
         
     def test_parse_url(self):
         s = Silk(self.io_loop)
-        s.parse_url('//text()',self.LOCAL_URL%(self.LOCAL_PORT,'index.html'), self.stop)
+        s.parse_url('//text()', LOCAL_URL%(LOCAL_PORT,'index.html'), self.stop)
         xpath_elements = self.wait()
         self.assertTrue(type(xpath_elements=='list'))
         
         
     def test_parse(self):
         s = Silk(self.io_loop)
-        s.get(self.LOCAL_URL%(self.LOCAL_PORT,'index.html'), self.stop)
+        s.get(LOCAL_URL%(LOCAL_PORT,'index.html'), self.stop)
         response = self.wait()
         s.parse('//text()', response, self.stop)
         xpath_elements = self.wait()
@@ -86,7 +92,7 @@ class TestSilk(AsyncTestCase):
         
     def test_incorrect_parse_xpath(self):
         s = Silk(self.io_loop)
-        s.parse_url('//count()',self.LOCAL_URL%(self.LOCAL_PORT,'index.html'), self.stop)
+        s.parse_url('//count()',LOCAL_URL%(LOCAL_PORT,'index.html'), self.stop)
         try:
             self.wait()
         except XPathEvalError:
@@ -98,21 +104,21 @@ class TestSilk(AsyncTestCase):
         Test that with debug=True that files are being saved to the local disk.
         """
         s = Silk(self.io_loop, debug=True)
-        s.get(self.LOCAL_URL%(self.LOCAL_PORT,'index.html'), self.stop)
+        s.get(LOCAL_URL%(LOCAL_PORT,'index.html'), self.stop)
         response = self.wait()
-        s.get_local_file(self.LOCAL_URL%(self.LOCAL_PORT,'index.html'), self.stop)
+        s.get_local_file(LOCAL_URL%(LOCAL_PORT,'index.html'), self.stop)
         cached_response = self.wait()
         self.assertEqual(response.body, cached_response.body)
-        s.delete_local_file(self.LOCAL_URL%(self.LOCAL_PORT,'index.html'))
+        s.delete_local_file(LOCAL_URL%(LOCAL_PORT,'index.html'))
 
 
     def test_domains_single_domain(self):
         domains = [
-            '127.0.0.1:%s'%(self.LOCAL_PORT),
+            '127.0.0.1:%s'%(LOCAL_PORT),
         ]
         
         s = Silk(self.io_loop, allowed_domains=domains)
-        s.get(self.LOCAL_URL%(self.LOCAL_PORT,'index.html'), self.stop)
+        s.get(LOCAL_URL%(LOCAL_PORT,'index.html'), self.stop)
         response = self.wait()
         self.assertIn("test paragraph", response.body)
         
@@ -181,6 +187,7 @@ class TestSilk(AsyncTestCase):
                        self.stop)
         response = self.wait()
         self.assertIn('dmoz', response.body)
+
         
     def test_change_request_rate(self):
         raise Exception("no immediate idea how to test this")
@@ -195,7 +202,7 @@ class TestSpider(AsyncTestCase):
         Handler.log_message = quiet_log
         current_dir = os.getcwd()
         os.chdir(os.path.join(current_dir, 'test_html'))
-        httpd = SocketServer.TCPServer(("", cls.LOCAL_PORT), Handler)
+        httpd = SocketServer.TCPServer(("", LOCAL_PORT), Handler)
         cls.p = multiprocessing.Process(target=httpd.serve_forever)
         cls.p.start()
         os.chdir(current_dir)
@@ -223,21 +230,22 @@ class TestSpider(AsyncTestCase):
         self.assertIn(spider2, s.spiders)
 
         
-    def test_find_urls(self):
+    def test__find_urls(self):
         s = Silk(self.io_loop, allowed_domains=['www.dmoz.org'], fail_silent=False)
-        s.get('http://www.dmoz.org/Computers/Programming/Languages/Python/Books/', self.stop)
+        s.get(LOCAL_URL%(LOCAL_PORT,'index.html'), self.stop)
         response = self.wait()
         spider = Spider()
         spider._find_urls(response, self.stop)
         links = self.wait()
-        self.assertTrue(len(links) > 0)
+        self.assertIn(['http://www.google.com',
+                       'page1.html'], links)
+
         
-    def test_crawl(self):
+    def test__crawl(self):
         spider = Spider()
-        s = Silk(self.io_loop, allowed_domains=['www.dmoz.org'])
+        s = Silk(self.io_loop, allowed_domains=[''])
         s.register(spider)
-        s.crawl('http://www.dmoz.org/Computers/Programming/Languages/Python/Books/',
-                self.stop)
+        s.crawl(LOCAL_URL%(LOCAL_PORT,'index.html'), self.stop)
         
         
     def test_spider_prints_urls_without_callback(self):
@@ -250,8 +258,5 @@ class TestSpider(AsyncTestCase):
         s.crawl('http://www.dmoz.org/Computers/Programming/Languages/Python/Books/',
                 self.stop)
         response = self.wait()
-
-        
-        
         
         
