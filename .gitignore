@@ -5,3 +5,7 @@ dist/
 .\#*
 *.pyc
 gossamer/debug_html_files/
+/gossamer.egg-info/PKG-INFO
+/gossamer.egg-info/SOURCES.txt
+/gossamer.egg-info/dependency_links.txt
+/gossamer.egg-info/top_level.txt
